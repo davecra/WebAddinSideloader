@@ -12,7 +12,9 @@ namespace WebAddInSideloader
         private const string VALUE_UseDirectDebugger = "UseDirectDebugger";
         private const string VALUE_UseLiveReload = "UseLiveReload";
         private const string VALUE_UseWebDebugger = "UseWebDebugger";
-        private const string PATH_IdTag = "//OfficeApp/Id";
+        private const string PATH_IdTag = "//oa:OfficeApp/oa:Id";
+        private const string XML_NS = "oa";
+        private const string XML_NS_PATH = "http://schemas.microsoft.com/office/appforoffice/1.1";
         /// <summary>
         /// Main entry point - For install we have to write this:
         /// Computer\HKEY_CURRENT_USER\Software\Microsoft\Office\16.0\WEF\Developer
@@ -35,10 +37,9 @@ namespace WebAddInSideloader
             }
             else if (LobjArgs.Processed)
             {
-                if (LobjArgs.Install)
-                {
-                    LbolSuccess = Install(LobjArgs.ManifestPath, LobjArgs.InstallPath);
-                }
+                if (LobjArgs.Install) LbolSuccess = Install(LobjArgs.ManifestPath, LobjArgs.InstallPath);
+                if(LobjArgs.Uninstall) LbolSuccess = Uninstall(LobjArgs.ManifestPath, LobjArgs.InstallPath);
+                if (LobjArgs.Update) LbolSuccess = Update(LobjArgs.ManifestPath, LobjArgs.InstallPath);
             }
 
             // were we successful
@@ -96,12 +97,14 @@ namespace WebAddInSideloader
                 FileInfo LobjFile = new FileInfo(PstrManifestPath);
                 string LstrInstallFilename = Path.Combine(PstrInstallPath, LobjFile.Name);
                 Console.WriteLine("Writing the manifest file to the install folder: " + LstrInstallFilename);
-                LobjFile.CopyTo(LstrInstallFilename);
+                LobjFile.CopyTo(LstrInstallFilename, true);
                 Console.WriteLine("Copy complete. Analyzing file...");
                 string LstrId = GetManifestId(LstrInstallFilename);
                 if (LstrId == null) throw new Exception("Invalid manifest file detected.");
                 Console.WriteLine("Writing Registry entries...");
                 RegistryKey LobjKey = Registry.CurrentUser.OpenSubKey(REG_KEY, true);
+                if (LobjKey == null) LobjKey = Registry.CurrentUser.CreateSubKey(REG_KEY, true);
+                if (LobjKey == null) throw new Exception("Unable to create or write to the registry path: HKCU\\" + REG_KEY);
                 LobjKey.SetValue(LstrInstallFilename, LstrInstallFilename, RegistryValueKind.String);
                 LobjKey = LobjKey.CreateSubKey(LstrId);
                 LobjKey.SetValue(VALUE_UseDirectDebugger, 1, RegistryValueKind.DWord);
@@ -199,7 +202,10 @@ namespace WebAddInSideloader
             {
                 XmlDocument LobjDoc = new XmlDocument();
                 LobjDoc.Load(PstrFilename);
-                XmlNode LobjIdNode = LobjDoc.SelectSingleNode(PATH_IdTag);
+                XmlNamespaceManager LobjMgr = new XmlNamespaceManager(LobjDoc.NameTable);
+                LobjMgr.AddNamespace(XML_NS, XML_NS_PATH);
+                XmlNode LobjIdNode = LobjDoc.DocumentElement.SelectSingleNode(PATH_IdTag, LobjMgr);
+                if (LobjIdNode == null) throw new Exception("Id not found in manifest file at " + PATH_IdTag);
                 Console.WriteLine("Manifest ID found: " + LobjIdNode.InnerText);
                 return LobjIdNode.InnerText;
             }
