@@ -33,10 +33,19 @@ namespace WebAddInSideloader
                     if (LstrArg.ToLower() == "manifestpath")
                     {
                         // verify that the path to the manifest is valid and is an XML file
-                        if (ConfirmPath(PobjArgs[LintArgCount + 1], true) && 
-                            PobjArgs[LintArgCount + 1].ToLower().EndsWith("xml"))
+
+                        var tmp = PobjArgs[LintArgCount + 1].ToLower();
+
+                        if (tmp.StartsWith("http") || ConfirmPath(tmp, true))
                         {
-                            ManifestPath = PobjArgs[LintArgCount + 1];
+                            if (tmp.EndsWith("xml"))
+                            {
+                                ManifestPath = tmp;
+                            }
+                            else
+                            {
+                                throw new Exception("Manifest path must be an xml file.");
+                            }                               
                         }
                         else
                         {
@@ -55,16 +64,45 @@ namespace WebAddInSideloader
                             throw new Exception("An invalid InstallPath was specified.");
                         }
                     }
+
+                    if (LstrArg.ToLower() == "installedmanifestfullname")
+                    {
+                        if (ConfirmPath(PobjArgs[LintArgCount + 1], true))
+                        {
+                            InstalledManifestFullName = PobjArgs[LintArgCount + 1];
+                        }
+                        else
+                        {
+                            throw new Exception("An invalid Installed Manifest was specified.");
+                        }
+                    }
                     LintArgCount++;
                 }
+                
                 // validate the install/update/uninstall switches
+
                 if ((Install == true && Uninstall == true) ||
-                    (Install == true && Update == true) || 
-                    (Update==true && Uninstall == true)) 
+                   (Install == true && Update == true) ||
+                   (Update == true && Uninstall == true))
                     throw new Exception("Invalid switch combination.");
-                // validate that paths are specified
-                if (string.IsNullOrEmpty(ManifestPath) || string.IsNullOrEmpty(InstallPath))
-                    throw new Exception("Both a ManifestPath and an InstallPath must be specified.");
+
+                if (Uninstall == true)
+                {
+                   if ( string.IsNullOrEmpty(InstalledManifestFullName))
+                    {
+                        throw new Exception("Installed Manifiest location must be secpified for uninstall.");
+                    }
+                       
+                }
+                else  //this is an install or update
+                {
+                    // validate that paths are specified
+                    if (string.IsNullOrEmpty(ManifestPath) || string.IsNullOrEmpty(InstallPath))
+                    {
+                        throw new Exception("Both a ManifestPath and an InstallPath must be specified.");
+                    }
+                }
+                 
                 // all is good
                 Processed = true;
             }
@@ -104,5 +142,7 @@ namespace WebAddInSideloader
         public string InstallPath { get; private set; }
         public bool Update { get; private set; }
         public bool Uninstall { get; private set; }
+
+        public string InstalledManifestFullName { get; set; }
     }
 }

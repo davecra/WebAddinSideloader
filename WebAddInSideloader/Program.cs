@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using System.Runtime.Remoting.Messaging;
 using System.Xml;
 
 namespace WebAddInSideloader
@@ -38,7 +39,7 @@ namespace WebAddInSideloader
             else if (LobjArgs.Processed)
             {
                 if (LobjArgs.Install) LbolSuccess = Install(LobjArgs.ManifestPath, LobjArgs.InstallPath);
-                if(LobjArgs.Uninstall) LbolSuccess = Uninstall(LobjArgs.ManifestPath, LobjArgs.InstallPath);
+                if (LobjArgs.Uninstall) LbolSuccess = Uninstall(LobjArgs.InstalledManifestFullName);
                 if (LobjArgs.Update) LbolSuccess = Update(LobjArgs.ManifestPath, LobjArgs.InstallPath);
             }
 
@@ -94,18 +95,27 @@ namespace WebAddInSideloader
             {
                 // copy the manifest down to the install path
                 Console.WriteLine("Accessing the manifest file: " + PstrManifestPath);
-                FileInfo LobjFile = new FileInfo(PstrManifestPath);
-                string LstrInstallFilename = Path.Combine(PstrInstallPath, LobjFile.Name);
-                Console.WriteLine("Writing the manifest file to the install folder: " + LstrInstallFilename);
-                LobjFile.CopyTo(LstrInstallFilename, true);
+
+                string localManifestFullPath = "";
+
+                if (PstrManifestPath.ToLower().StartsWith("http"))
+                {
+                    localManifestFullPath = DownloadFileFromWeb(PstrManifestPath, PstrInstallPath);
+                }
+                else
+                {
+                    localManifestFullPath = DownloadFile(PstrManifestPath, PstrInstallPath);
+                }
+
                 Console.WriteLine("Copy complete. Analyzing file...");
-                string LstrId = GetManifestId(LstrInstallFilename);
+                string LstrId = GetManifestId(localManifestFullPath);
+                
                 if (LstrId == null) throw new Exception("Invalid manifest file detected.");
                 Console.WriteLine("Writing Registry entries...");
                 RegistryKey LobjKey = Registry.CurrentUser.OpenSubKey(REG_KEY, true);
                 if (LobjKey == null) LobjKey = Registry.CurrentUser.CreateSubKey(REG_KEY, true);
                 if (LobjKey == null) throw new Exception("Unable to create or write to the registry path: HKCU\\" + REG_KEY);
-                LobjKey.SetValue(LstrInstallFilename, LstrInstallFilename, RegistryValueKind.String);
+                LobjKey.SetValue(localManifestFullPath, localManifestFullPath, RegistryValueKind.String);
                 LobjKey = LobjKey.CreateSubKey(LstrId);
                 LobjKey.SetValue(VALUE_UseDirectDebugger, 1, RegistryValueKind.DWord);
                 LobjKey.SetValue(VALUE_UseLiveReload, 0, RegistryValueKind.DWord);
@@ -127,26 +137,24 @@ namespace WebAddInSideloader
         /// <summary>
         /// Uninstalls the web add-in
         /// </summary>
-        /// <param name="PstrManifestPath"></param>
-        /// <param name="PstrInstallPath"></param>
-        /// <returns></returns>
-        private static bool Uninstall(string PstrManifestPath, string PstrInstallPath)
+        /// <param name="PstrLocalManifestFullName"></param>      
+        /// <returns>bool</returns>
+        private static bool Uninstall(string PstrLocalManifestFullName)
         {
             try
             {
-                // Grab the server manifest to get the filename
-                FileInfo LobjFile = new FileInfo(PstrManifestPath);
-                string LstrInstalledFilename = Path.Combine(PstrInstallPath, LobjFile.Name);
-                Console.WriteLine("Analyzing the manifest file: " + LstrInstalledFilename);
-                string LstrId = GetManifestId(LstrInstalledFilename);
+               
+                string LstrId = GetManifestId(PstrLocalManifestFullName);
+
                 if (LstrId == null) throw new Exception("Invalid manifest file detected.");
-                LobjFile = new FileInfo(LstrInstalledFilename); // grab the local
-                Console.WriteLine("Deleting the manifest file: " + LstrInstalledFilename);
+
+                FileInfo LobjFile = new FileInfo(PstrLocalManifestFullName); // grab the local
+                Console.WriteLine("Deleting the manifest file: " + PstrLocalManifestFullName);
                 LobjFile.Delete();
 
                 Console.WriteLine("Deleting Registry entries...");
                 RegistryKey LobjKey = Registry.CurrentUser.OpenSubKey(REG_KEY, true);
-                LobjKey.DeleteValue(LstrInstalledFilename);
+                LobjKey.DeleteValue(PstrLocalManifestFullName);
                 LobjKey.DeleteSubKey(LstrId);
                 Console.WriteLine("Registry keys deleted.");
                 Console.WriteLine("Uninstall process completed.");
@@ -167,17 +175,23 @@ namespace WebAddInSideloader
         /// </summary>
         /// <param name="PstrManifestPath"></param>
         /// <param name="PstrInstallPath"></param>
-        /// <returns></returns>
+        /// <returns>bool</returns>
         private static bool Update(string PstrManifestPath, string PstrInstallPath)
         {
             try
             {
-                // copy the manifest down to the install path
-                Console.WriteLine("Accessing the manifest file: " + PstrManifestPath);
-                FileInfo LobjFile = new FileInfo(PstrManifestPath);
-                string LstrUpdateFilename = Path.Combine(PstrInstallPath, LobjFile.Name);
-                Console.WriteLine("Copying the manifest locally from the server.");
-                LobjFile.CopyTo(LstrUpdateFilename, true); // copy over the local
+
+                string localManifestFullPath="";
+
+                if (PstrManifestPath.ToLower().StartsWith("http"))
+                {
+                    localManifestFullPath = DownloadFileFromWeb(PstrManifestPath, PstrInstallPath);
+                }
+                else
+                {
+                    localManifestFullPath = DownloadFile(PstrManifestPath, PstrInstallPath);
+                }
+
                 Console.WriteLine("Update process completed.");
                 return true;
             }
@@ -195,13 +209,14 @@ namespace WebAddInSideloader
         /// This is needed for each operation - install / uninstall
         /// </summary>
         /// <param name="PstrFilename"></param>
-        /// <returns></returns>
-        private static string GetManifestId(string PstrFilename)
+        /// <returns>string</returns>
+        private static string GetManifestId(string LocalManifestPath)
         {
             try
             {
                 XmlDocument LobjDoc = new XmlDocument();
-                LobjDoc.Load(PstrFilename);
+                LobjDoc.Load(LocalManifestPath);
+
                 XmlNamespaceManager LobjMgr = new XmlNamespaceManager(LobjDoc.NameTable);
                 LobjMgr.AddNamespace(XML_NS, XML_NS_PATH);
                 XmlNode LobjIdNode = LobjDoc.DocumentElement.SelectSingleNode(PATH_IdTag, LobjMgr);
@@ -215,6 +230,37 @@ namespace WebAddInSideloader
                                              "or it is not a properly formatted Web Add-in manifest.");
                 return null;
             }
+        }
+
+        private static string DownloadFile(string srcPath, string destPath)
+        {
+            FileInfo LobjFile = new FileInfo(srcPath);
+            string LstrInstallFilename = Path.Combine(destPath, LobjFile.Name);
+               
+            Console.WriteLine("Writing the manifest file to the install folder: " + LstrInstallFilename);
+            LobjFile.CopyTo(LstrInstallFilename, true);
+
+            return LstrInstallFilename;
+        }
+
+        private static string DownloadFileFromWeb(string ServerUrl, string destPath)
+        {
+
+            var tmp = ServerUrl.Split('/');
+            string manifestName = tmp[tmp.Length - 1];
+
+            string LstrInstallFilename = Path.Combine(destPath, manifestName);
+
+            var request = System.Net.HttpWebRequest.Create(ServerUrl);
+            using (var sReader = new StreamReader(request.GetResponse().GetResponseStream()))
+            {
+                using (var sWriter = new StreamWriter(LstrInstallFilename))
+                {
+                    sWriter.Write(sReader.ReadToEnd());
+                }
+            }
+
+            return LstrInstallFilename;
         }
     }
 }
