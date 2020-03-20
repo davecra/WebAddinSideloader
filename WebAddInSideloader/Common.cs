@@ -20,5 +20,16 @@ namespace WebAddInSideloader
                 // we do nothing 
             }
         }
+
+        /// <summary>
+        /// Passes the exception up. Use this with a throw statement
+        /// </summary>
+        /// <param name="PobjEx"></param>
+        /// <param name="PstrMessage"></param>
+        /// <returns></returns>
+        public static Exception PassException(this Exception PobjEx, string PstrMessage)
+        {
+            return new Exception(PstrMessage, PobjEx);
+        }
     }
 }

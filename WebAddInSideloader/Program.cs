@@ -1,6 +1,7 @@
 ﻿using Microsoft.Win32;
 using System;
 using System.IO;
+using System.Net;
 using System.Reflection;
 using System.Runtime.Remoting.Messaging;
 using System.Xml;
@@ -76,11 +77,13 @@ namespace WebAddInSideloader
                    "\t-update\t\tUpdates the add-in\n\n" +
                    "You will also need to provide BOTH of these switches with any of the above options: \n\n" +
                    "\t-installPath [local folder path]\n" +
-                   "\t-manifestPath [centralized manifest XML file]\n\n" +
+                   "\t-manifestPath [centralized manifest XML file]\n" +
+                   "\t-installedManifestFullname [full path to local manifest] (only with uninstall)\n\n" +
                    "\tNOTE: The install path folder MUST exist. \n\n" +
                    "The following are some examples of usage: \n\n" +
                    "Set-WebAddin -install -installPath c:\\add-in -manifestPath \\\\server\\share\\manifest.xml\n" +
-                   "Set-WebAddin -uninstall -installPath c:\\add-in -manifestPath \\\\server\\share\\manifest.xml\n" +
+                   "Set-WebAddin -install - installPath c:\\add-in -manifestPath https://server/path/manifest.xml \n" +
+                   "Set-WebAddin -uninstall -installedManifestFullname c:\\\\add-in\\manifest.xml" +
                    "Set-WebAddin -update -installPath c:\\add-in -manifestPath \\\\server\\share\\manifest.xml\n";
         }
 
@@ -96,26 +99,26 @@ namespace WebAddInSideloader
                 // copy the manifest down to the install path
                 Console.WriteLine("Accessing the manifest file: " + PstrManifestPath);
 
-                string localManifestFullPath = "";
+                string LstrLocalManifestFullPath = "";
 
                 if (PstrManifestPath.ToLower().StartsWith("http"))
                 {
-                    localManifestFullPath = DownloadFileFromWeb(PstrManifestPath, PstrInstallPath);
+                    LstrLocalManifestFullPath = DownloadFileFromWeb(PstrManifestPath, PstrInstallPath);
                 }
                 else
                 {
-                    localManifestFullPath = DownloadFile(PstrManifestPath, PstrInstallPath);
+                    LstrLocalManifestFullPath = DownloadFile(PstrManifestPath, PstrInstallPath);
                 }
 
                 Console.WriteLine("Copy complete. Analyzing file...");
-                string LstrId = GetManifestId(localManifestFullPath);
+                string LstrId = GetManifestId(LstrLocalManifestFullPath);
                 
                 if (LstrId == null) throw new Exception("Invalid manifest file detected.");
                 Console.WriteLine("Writing Registry entries...");
                 RegistryKey LobjKey = Registry.CurrentUser.OpenSubKey(REG_KEY, true);
                 if (LobjKey == null) LobjKey = Registry.CurrentUser.CreateSubKey(REG_KEY, true);
                 if (LobjKey == null) throw new Exception("Unable to create or write to the registry path: HKCU\\" + REG_KEY);
-                LobjKey.SetValue(localManifestFullPath, localManifestFullPath, RegistryValueKind.String);
+                LobjKey.SetValue(LstrLocalManifestFullPath, LstrLocalManifestFullPath, RegistryValueKind.String);
                 LobjKey = LobjKey.CreateSubKey(LstrId);
                 LobjKey.SetValue(VALUE_UseDirectDebugger, 1, RegistryValueKind.DWord);
                 LobjKey.SetValue(VALUE_UseLiveReload, 0, RegistryValueKind.DWord);
@@ -181,15 +184,15 @@ namespace WebAddInSideloader
             try
             {
 
-                string localManifestFullPath="";
+                string LstrLocalManifestFullPath="";
 
                 if (PstrManifestPath.ToLower().StartsWith("http"))
                 {
-                    localManifestFullPath = DownloadFileFromWeb(PstrManifestPath, PstrInstallPath);
+                    LstrLocalManifestFullPath = DownloadFileFromWeb(PstrManifestPath, PstrInstallPath);
                 }
                 else
                 {
-                    localManifestFullPath = DownloadFile(PstrManifestPath, PstrInstallPath);
+                    LstrLocalManifestFullPath = DownloadFile(PstrManifestPath, PstrInstallPath);
                 }
 
                 Console.WriteLine("Update process completed.");
@@ -232,35 +235,62 @@ namespace WebAddInSideloader
             }
         }
 
-        private static string DownloadFile(string srcPath, string destPath)
+        /// <summary>
+        /// Downloads the file from the local file system or from a 
+        /// network location via UNC
+        /// </summary>
+        /// <param name="PstrSrcPath"></param>
+        /// <param name="PstrDestPath"></param>
+        /// <returns></returns>
+        private static string DownloadFile(string PstrSrcPath, string PstrDestPath)
         {
-            FileInfo LobjFile = new FileInfo(srcPath);
-            string LstrInstallFilename = Path.Combine(destPath, LobjFile.Name);
-               
-            Console.WriteLine("Writing the manifest file to the install folder: " + LstrInstallFilename);
-            LobjFile.CopyTo(LstrInstallFilename, true);
+            try
+            {
+                FileInfo LobjFile = new FileInfo(PstrSrcPath);
+                string LstrInstallFilename = Path.Combine(PstrDestPath, LobjFile.Name);
+                Console.WriteLine("Reading manifest file from: " + PstrSrcPath);
+                Console.WriteLine("Writing the manifest file to the install folder: " + LstrInstallFilename);
+                LobjFile.CopyTo(LstrInstallFilename, true);
 
-            return LstrInstallFilename;
+                return LstrInstallFilename;
+            }
+            catch(Exception PobjEx)
+            {
+                throw PobjEx.PassException("Unable to download the file.");
+            }
         }
 
-        private static string DownloadFileFromWeb(string ServerUrl, string destPath)
+        /// <summary>
+        /// Downloads the manifest file from the web
+        /// </summary>
+        /// <param name="PstrServerUrl"></param>
+        /// <param name="PstrDestPath"></param>
+        /// <returns></returns>
+        private static string DownloadFileFromWeb(string PstrServerUrl, string PstrDestPath)
         {
-
-            var tmp = ServerUrl.Split('/');
-            string manifestName = tmp[tmp.Length - 1];
-
-            string LstrInstallFilename = Path.Combine(destPath, manifestName);
-
-            var request = System.Net.HttpWebRequest.Create(ServerUrl);
-            using (var sReader = new StreamReader(request.GetResponse().GetResponseStream()))
+            try
             {
-                using (var sWriter = new StreamWriter(LstrInstallFilename))
-                {
-                    sWriter.Write(sReader.ReadToEnd());
-                }
-            }
+                string[] LstrPathParts = PstrServerUrl.Split('/');
+                string LstrManifestName = LstrPathParts[LstrPathParts.Length - 1];
 
-            return LstrInstallFilename;
+                string LstrInstallFilename = Path.Combine(PstrDestPath, LstrManifestName);
+                Console.WriteLine("Reading manifest file from: " + PstrServerUrl);
+                Console.WriteLine("Writing the manifest file to the install folder: " + LstrInstallFilename);
+                WebRequest LobjRequest = System.Net.HttpWebRequest.Create(PstrServerUrl);
+                using (StreamReader LobjReader = new StreamReader(LobjRequest.GetResponse().GetResponseStream()))
+                {
+                    using (StreamWriter LobjWriter = new StreamWriter(LstrInstallFilename))
+                    {
+                        LobjWriter.Write(LobjReader.ReadToEnd());
+                    }
+                }
+
+                return LstrInstallFilename;
+            }
+            catch(Exception PobjEx)
+            {
+                throw PobjEx.PassException("Unable to download manifest from web.");
+            }
         }
     }
 }

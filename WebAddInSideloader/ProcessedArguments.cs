@@ -88,7 +88,7 @@ namespace WebAddInSideloader
 
                 if (Uninstall == true)
                 {
-                   if ( string.IsNullOrEmpty(InstalledManifestFullName))
+                   if (string.IsNullOrEmpty(InstalledManifestFullName))
                     {
                         throw new Exception("Installed Manifiest location must be secpified for uninstall.");
                     }
@@ -142,7 +142,6 @@ namespace WebAddInSideloader
         public string InstallPath { get; private set; }
         public bool Update { get; private set; }
         public bool Uninstall { get; private set; }
-
         public string InstalledManifestFullName { get; set; }
     }
 }
