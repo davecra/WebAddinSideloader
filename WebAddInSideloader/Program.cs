@@ -42,6 +42,8 @@ namespace WebAddInSideloader
                 if (LobjArgs.Install) LbolSuccess = Install(LobjArgs.ManifestPath, LobjArgs.InstallPath);
                 if (LobjArgs.Uninstall) LbolSuccess = Uninstall(LobjArgs.InstalledManifestFullName);
                 if (LobjArgs.Update) LbolSuccess = Update(LobjArgs.ManifestPath, LobjArgs.InstallPath);
+                if (LobjArgs.Test) LbolSuccess = Test(LobjArgs.ManifestPath);
+                if (LobjArgs.Cleanup) LbolSuccess = Uninstall(LobjArgs.ManifestPath, true);
             }
 
             // were we successful
@@ -71,20 +73,69 @@ namespace WebAddInSideloader
                    "centeralized add-in governance to be able to \ninstall web add-ins to users " +
                    "desktops, requiring no effort by the users to have the add-ins installed " +
                    "and available \nfor use.\n\n" +
-                   "To use this utility, you will use only one of these required switches: \n\n" +
+                   "Switches\n" +
+                   "--------\n" +
+                   "This utility provides the following options: \n\n" +
                    "\t-install\tInstalls the add-in\n" +
                    "\t-uninstall\tUninstalls the add-in\n" +
-                   "\t-update\t\tUpdates the add-in\n\n" +
-                   "You will also need to provide BOTH of these switches with any of the above options: \n\n" +
+                   "\t-update\t\tUpdates the add-in\n" +
+                   "\t-test\t\tInstalls the add-in (local only)\n" +
+                   "\t-cleanup\t\tRemoves the add-in (local only)\n\n" +
+                   "You will also need to provide one or more of these switches with any of the above options: \n\n" +
                    "\t-installPath [local folder path]\n" +
                    "\t-manifestPath [centralized manifest XML file]\n" +
                    "\t-installedManifestFullname [full path to local manifest] (only with uninstall)\n\n" +
                    "\tNOTE: The install path folder MUST exist. \n\n" +
+                   "Local Only Testing\n" +
+                   "------------------\n" +
+                   "For sideload (local only) testing you can use these switches:\n\n" +
+                   "\t-test -manifestPath [full path and filename to the manifest*]\n" +
+                   "\t-cleaup -manifestPath [full path and filename to the manifest*]\n\n" +
+                   "*NOTE: The manifest path must be on the local drive.\n\n"+
+                   "Examples\n" +
+                   "--------\n" +
                    "The following are some examples of usage: \n\n" +
                    "Set-WebAddin -install -installPath c:\\add-in -manifestPath \\\\server\\share\\manifest.xml\n" +
                    "Set-WebAddin -install - installPath c:\\add-in -manifestPath https://server/path/manifest.xml \n" +
                    "Set-WebAddin -uninstall -installedManifestFullname c:\\\\add-in\\manifest.xml" +
-                   "Set-WebAddin -update -installPath c:\\add-in -manifestPath \\\\server\\share\\manifest.xml\n";
+                   "Set-WebAddin -update -installPath c:\\add-in -manifestPath \\\\server\\share\\manifest.xml\n" +
+                   "Set-WebAddin -test -manifestPath c:\\add-in\\manifest.xml\n" +
+                   "Set-WebAddin -cleanup -manifestPath c:\\add-in\\manifest.xml";
+        }
+
+        /// <summary>
+        /// Sideloads the add-in for testing from the location of the manifest
+        /// Does not download and install, just uses the manifest in-place
+        /// </summary>
+        /// <param name="PstrManifestPath"></param>
+        /// <returns></returns>
+        private static bool Test(string PstrManifestPath)
+        {
+            try
+            {
+                string LstrId = GetManifestId(PstrManifestPath);
+                if (LstrId == null) throw new Exception("Invalid manifest file detected.");
+                Console.WriteLine("Writing Registry entries...");
+                RegistryKey LobjKey = Registry.CurrentUser.OpenSubKey(REG_KEY, true);
+                if (LobjKey == null) LobjKey = Registry.CurrentUser.CreateSubKey(REG_KEY, true);
+                if (LobjKey == null) throw new Exception("Unable to create or write to the registry path: HKCU\\" + REG_KEY);
+                LobjKey.SetValue(LstrId, PstrManifestPath, RegistryValueKind.String);
+                LobjKey = LobjKey.CreateSubKey(LstrId);
+                LobjKey.SetValue(VALUE_UseDirectDebugger, 1, RegistryValueKind.DWord);
+                LobjKey.SetValue(VALUE_UseLiveReload, 0, RegistryValueKind.DWord);
+                LobjKey.SetValue(VALUE_UseWebDebugger, 0, RegistryValueKind.DWord);
+                Console.WriteLine("Registry keys completed.");
+                Console.WriteLine("Test sideload process completed.");
+                return true;
+            }
+            catch (Exception PobjEx)
+            {
+                PobjEx.HandleException(true, "Either the manifest path is invalid, cannot be accessed, or " +
+                                             "the manifest is not a valid XML file, is not a Web Add-in " +
+                                             "manifest, or the local path does not exist, or the local " +
+                                             "file is still in use.");
+                return false;
+            }
         }
 
         /// <summary>
@@ -118,7 +169,7 @@ namespace WebAddInSideloader
                 RegistryKey LobjKey = Registry.CurrentUser.OpenSubKey(REG_KEY, true);
                 if (LobjKey == null) LobjKey = Registry.CurrentUser.CreateSubKey(REG_KEY, true);
                 if (LobjKey == null) throw new Exception("Unable to create or write to the registry path: HKCU\\" + REG_KEY);
-                LobjKey.SetValue(LstrLocalManifestFullPath, LstrLocalManifestFullPath, RegistryValueKind.String);
+                LobjKey.SetValue(LstrId, LstrLocalManifestFullPath, RegistryValueKind.String);
                 LobjKey = LobjKey.CreateSubKey(LstrId);
                 LobjKey.SetValue(VALUE_UseDirectDebugger, 1, RegistryValueKind.DWord);
                 LobjKey.SetValue(VALUE_UseLiveReload, 0, RegistryValueKind.DWord);
@@ -142,22 +193,24 @@ namespace WebAddInSideloader
         /// </summary>
         /// <param name="PstrLocalManifestFullName"></param>      
         /// <returns>bool</returns>
-        private static bool Uninstall(string PstrLocalManifestFullName)
+        private static bool Uninstall(string PstrLocalManifestFullName, bool PbolDoNotDelete = false)
         {
             try
             {
-               
                 string LstrId = GetManifestId(PstrLocalManifestFullName);
 
                 if (LstrId == null) throw new Exception("Invalid manifest file detected.");
 
-                FileInfo LobjFile = new FileInfo(PstrLocalManifestFullName); // grab the local
-                Console.WriteLine("Deleting the manifest file: " + PstrLocalManifestFullName);
-                LobjFile.Delete();
+                if (!PbolDoNotDelete)
+                {
+                    FileInfo LobjFile = new FileInfo(PstrLocalManifestFullName); // grab the local
+                    Console.WriteLine("Deleting the manifest file: " + PstrLocalManifestFullName);
+                    LobjFile.Delete();
+                }
 
                 Console.WriteLine("Deleting Registry entries...");
                 RegistryKey LobjKey = Registry.CurrentUser.OpenSubKey(REG_KEY, true);
-                LobjKey.DeleteValue(PstrLocalManifestFullName);
+                LobjKey.DeleteValue(LstrId);
                 LobjKey.DeleteSubKey(LstrId);
                 Console.WriteLine("Registry keys deleted.");
                 Console.WriteLine("Uninstall process completed.");

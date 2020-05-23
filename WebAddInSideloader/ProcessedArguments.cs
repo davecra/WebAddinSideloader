@@ -27,6 +27,8 @@ namespace WebAddInSideloader
                         Help = true;
                         return;
                     }
+                    if (LstrArg.ToLower() == "test") Test = true;
+                    if (LstrArg.ToLower() == "cleanup") Cleanup = true;
                     if (LstrArg.ToLower() == "install") Install = true;
                     if (LstrArg.ToLower() == "update") Update = true;
                     if (LstrArg.ToLower() == "uninstall") Uninstall = true;
@@ -79,11 +81,17 @@ namespace WebAddInSideloader
                     LintArgCount++;
                 }
                 
-                // validate the install/update/uninstall switches
-
+                // validate the install/update/uninstall/test/cleanup switches
                 if ((Install == true && Uninstall == true) ||
                    (Install == true && Update == true) ||
-                   (Update == true && Uninstall == true))
+                   (Update == true && Uninstall == true) ||
+                   (Install == true && Test == true) ||
+                   (Uninstall == true && Test == true) ||
+                   (Update == true && Test == true) ||
+                   (Cleanup == true && Test == true) ||
+                   (Cleanup == true && Uninstall == true) ||
+                   (Cleanup == true && Update == true) ||
+                   (Cleanup == true && Install == true))
                     throw new Exception("Invalid switch combination.");
 
                 if (Uninstall == true)
@@ -94,12 +102,23 @@ namespace WebAddInSideloader
                     }
                        
                 }
-                else  //this is an install or update
+                else if(Install == true || Update == true)  //this is an install or update
                 {
                     // validate that paths are specified
                     if (string.IsNullOrEmpty(ManifestPath) || string.IsNullOrEmpty(InstallPath))
                     {
                         throw new Exception("Both a ManifestPath and an InstallPath must be specified.");
+                    }
+                }
+                else if(Test == true || Cleanup == true) // this is for testing/local only
+                {
+                    if(string.IsNullOrEmpty(ManifestPath))
+                    {
+                        throw new Exception("ManifestPath must be specified.");
+                    }
+                    if(!string.IsNullOrEmpty(InstallPath))
+                    {
+                        throw new Exception("The install path is not required for this option.");
                     }
                 }
                  
@@ -143,5 +162,7 @@ namespace WebAddInSideloader
         public bool Update { get; private set; }
         public bool Uninstall { get; private set; }
         public string InstalledManifestFullName { get; set; }
+        public bool Test { get; private set; }
+        public bool Cleanup { get; private set; }
     }
 }
