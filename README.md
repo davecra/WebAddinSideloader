@@ -50,7 +50,11 @@ For sideload (local only) testing you can use these switches:
         -test -manifestPath [full path and filename to the manifest*]
         -cleaup -maifestPath [full path and filename to the manifest*]
 
-*NOTE: The manifest path must be on the local drive.
+**NOTE**: The manifest path must be on the local drive.
+
+Once it has been sideloaded, your add-in will not load automatically. To load your add-in you will need to select it from the drop-down list of "Developer Add-ins" in the "My Add-ins" list on the Insert ribbon.
+
+![Developer Add-ins](https://davecra.files.wordpress.com/2020/06/add-in-menu.png?w=400)
 
 Examples
 --------
